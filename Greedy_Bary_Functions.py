@@ -1,10 +1,11 @@
-#Functions for use with Barycentring Codes
+#Functions for use with Barycentring Codes to create and test RB model
+#and interpolation of this model
 
 
 import numpy as np
 import greedy
 from get_baryf import get_bary_in_loop
-from scipy.interpolate import interp1d
+from scipy import interpolate
 
 
 def greedy_bary(detector, tssize, wl, source, tGPS, Eephem, Sephem, dt):
@@ -72,8 +73,8 @@ def greedy_bary(detector, tssize, wl, source, tGPS, Eephem, Sephem, dt):
 def lin_com(csize, no_v, RB, Edt):
     """
     extracts location of points along tGPS to create arrays of corresponding points
-    along RB to form tRB. Also extracts similar points on Edt. Then inverts tRB 
-    to assist in solving the matrix equation x = (AB)tRB
+    along RB to form pRB. Also extracts similar points on Edt. Then inverts pRB 
+    to assist in solving the matrix equation x = (A)pRB
     
     Input:
     csize = check set size
@@ -82,17 +83,17 @@ def lin_com(csize, no_v, RB, Edt):
     
     Output:
     newEdt = fitted time delay vectors of Edt
-    AB = Coefficient of matrix equation
+    A = Coefficient of matrix equation
     p = array of linearly spaced points along tGPS (not incl endpoints)
     x = array of Edt points corresponding to p locations
-    tRB = array of RB points corresponding to p locations
+    pRB = array of RB points corresponding to p locations
     """
     
     
-    #initialises arrays for use solving matrix equation x = (AB)tRB
+    #initialises arrays for use solving matrix equation x = (A)pRB
     x= np.zeros((csize,no_v))
-    tRB = np.zeros((no_v,no_v))
-    AB = np.zeros((csize,no_v))
+    pRB = np.zeros((no_v,no_v))
+    A = np.zeros((csize,no_v))
     
     
     #creates array of specific integer locations along Edt, missing end points
@@ -101,10 +102,10 @@ def lin_com(csize, no_v, RB, Edt):
     for i in range(no_v):
         for j in range(no_v):
             #creates vectors of reduced bases corresponding to time location of points used 
-            tRB[i][j] = RB[i][p[j]]
+            pRB[i][j] = RB[i][p[j]]
         
-    #inverts tRB for use solving x = (AB)tRB
-    C = np.linalg.inv((tRB))
+    #inverts pRB for use solving x = (A)pRB
+    C = np.linalg.inv((pRB))
     ##creates Edt to be tested with RB
     for i in range(csize):
         
@@ -112,31 +113,34 @@ def lin_com(csize, no_v, RB, Edt):
         for j in range(no_v):
             x[i][j] = Edt[i][p[j]]    
             
-    #solves x=(AB)(tRB)
-    AB = np.dot(x,C)
-    newEdt=np.dot(AB,RB)
+    #solves x=(A)(pRB)
+    A = np.dot(x,C)
+    newEdt=np.dot(A,RB)
 
-    return newEdt, AB, p, x, tRB
+    return newEdt, A, p, x, pRB
     
 
 
-def interpnewEdt(newEdt, tGPS, step, wl):
+def interpnewEdt(newEdt, tGPS, step, wl, csize):
     """
-    Interpolation of emitdt vector created by lin com of RB. 
+    Spline interpolation of the emitdt vector created by lin com of RB. 
     
     Input:
         newEdt, tGPS & wl as above
         step = period between new time points. preferably integer
     
     Output:
-       interEdt = ndarray of linear fit of points along each newEdt vector 
+       interEdt = ndarray of fit of points along each newEdt vector 
+       newtime = array of times with range of tGPS with points spaced step along
     """
     #creates time vector finer than tGPS but with same period
     newtime = np.arange(tGPS[0], tGPS[wl-1], step)
-    
-    #defines function f of form newEdt = f(tGPS) 
-    f =interp1d(tGPS, newEdt)
-    
-    #applies f defined above to newtime vector, returning linear fit of points
-    interEdt = f(newtime)
-    return interEdt
+    #defines function of form Edt = f(tGPS)
+    #initialise nd arrays for interp model emitdt values 
+    interEdt = np.zeros((csize, np.size(newtime)))
+    for i in range(csize):
+        #finds spline represention of the tGPS, newEdt curve
+        tck = interpolate.splrep(tGPS, newEdt[i], s=0)
+        #evaluates spline for newEdt vector and assigns to interEdt
+        interEdt[i] = interpolate.splev(newtime, tck, der=0)
+    return interEdt, newtime
